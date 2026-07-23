@@ -54,3 +54,32 @@ Run standard maintenance:
 
 ```powershell
 .\Konserwacja.ps1
+```
+# Run with interactive menu (recommended)
+```
+.\Konserwacja.ps1 -Menu
+```
+Skipping specific operations
+PowerShell# Skip DISM and SFC
+```
+.\Konserwacja.ps1 -SkipDISM -SkipSFC
+```
+
+# Skip only Update cache
+```
+.\Konserwacja.ps1 -SkipUpdateCache
+```
+
+##Execution Policy (Important)
+
+If you see the error *.ps1 cannot be loaded because running scripts is disabled on this system, run one of the following commands first:
+Option 1: Bypass for current session only (Recommended)
+```
+PowerShellSet-ExecutionPolicy Bypass -Scope Process
+```
+Then run the script in the same window.
+Option 2: Permanent change for current user
+```
+PowerShellSet-ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+Note: Option 1 is safer as it only affects the current PowerShell session and resets automatically when you close the window.
