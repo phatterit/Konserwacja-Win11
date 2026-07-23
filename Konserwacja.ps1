@@ -1,4 +1,46 @@
-<#
+# --- MENU INTERAKTYWNE ---
+if ($Menu -or (-not ($PSBoundParameters.ContainsKey('SkipTemp') -or 
+                     $PSBoundParameters.ContainsKey('SkipUpdateCache') -or 
+                     $PSBoundParameters.ContainsKey('SkipStoreReset') -or 
+                     $PSBoundParameters.ContainsKey('SkipDISM') -or 
+                     $PSBoundParameters.ContainsKey('SkipSFC')))) {
+    
+    Clear-Host
+    Write-Information "=== Konserwacja Windows 11 v$ScriptVersion ===`n"
+    Write-Information "Wybierz operacje, które chcesz wykonać (wpisz numery):`n"
+
+    Write-Information "1 → Czyszczenie plików tymczasowych"
+    Write-Information "2 → Czyszczenie cache Windows Update"
+    Write-Information "3 → DNS + Kosz + Sklep MS"
+    Write-Information "4 → DISM (czyszczenie i naprawa)"
+    Write-Information "5 → SFC /scannow"
+    Write-Information ""
+    Write-Information "9 → WSZYSTKO"
+    Write-Information "0 → Anuluj`n"
+
+    $choice = Read-Host "Wpisz numery (np. 1 2 3 lub 9)"
+
+    if ($choice -eq "0" -or [string]::IsNullOrWhiteSpace($choice)) {
+        Write-Warn "Anulowano uruchomienie skryptu."
+        exit 0
+    }
+
+    if ($choice -eq "9") {
+        Write-Info "Wybrano: Wszystkie operacje"
+        # nic nie skipujemy
+    }
+    else {
+        $selected = $choice -split '\s+' | Where-Object { $_ -ne '' } | ForEach-Object { $_.Trim() }
+        
+        $SkipTemp         = $selected -notcontains "1"
+        $SkipUpdateCache  = $selected -notcontains "2"
+        $SkipStoreReset   = $selected -notcontains "3"
+        $SkipDISM         = $selected -notcontains "4"
+        $SkipSFC          = $selected -notcontains "5"
+
+        Write-Info "Wybrane operacje: $($selected -join ', ')"
+    }
+}<#
 .SYNOPSIS
     Zaawansowany skrypt konserwacji i czyszczenia systemu Windows 11.
 .DESCRIPTION
