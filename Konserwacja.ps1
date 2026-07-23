@@ -23,7 +23,7 @@ param (
     [switch]$Menu
 )
 
-$ScriptVersion = "1.2.0"
+$ScriptVersion = "1.2.1"
 
 $InformationPreference = 'Continue'
 $script:ExitCode = 0
