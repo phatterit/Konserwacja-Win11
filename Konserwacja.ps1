@@ -2,6 +2,244 @@
 .SYNOPSIS
     Zaawansowany skrypt konserwacji i czyszczenia systemu Windows 11.
 .DESCRIPTION
+    Pełna kompatybilność z PowerShell 5.1 i PowerShell 7+.
+    Czyści temp, cache Windows Update, DNS, Sklep MS, Kosz + DISM + SFC.
+.EXAMPLE
+    .\Konserwacja.ps1
+.EXAMPLE
+    .\Konserwacja.ps1 -SkipDISM -SkipSFC
+#>
+
+#Requires -Version 5.1
+#Requires -RunAsAdministrator
+
+[CmdletBinding()]
+param (
+    [switch]$SkipTemp,
+    [switch]$SkipUpdateCache,
+    [switch]$SkipStoreReset,
+    [switch]$SkipDISM,
+    [switch]$SkipSFC
+)
+
+$ScriptVersion = "1.1.0"
+
+# Wymuszenie wyświetlania informacji
+$InformationPreference = 'Continue'
+
+# Status wyjścia
+$script:ExitCode = 0
+
+# --- FUNKCJE POMOCNICZE ---
+function Write-Step    { param([string]$Text) Write-Information "`n$Text" }
+function Write-Info    { param([string]$Text) Write-Information " -> $Text" }
+function Write-Success { param([string]$Text) Write-Information " -> [OK] $Text" }
+function Write-Warn    { param([string]$Text) Write-Warning " -> $Text" }
+function Write-Err     { param([string]$Text) Write-Error " [!] $Text" }
+
+function Invoke-Dism {
+    param([string]$Arguments)
+    $proc = Start-Process -FilePath "dism.exe" -ArgumentList $Arguments -Wait -NoNewWindow -PassThru
+    return $proc.ExitCode
+}
+
+# Funkcja do komend DISM, które chcemy zobaczyć output
+function Invoke-DismOutput {
+    param([string]$Arguments)
+    Write-Information ""
+    dism.exe $Arguments.Split()
+}
+
+function Clear-Folder {
+    param([string]$Path)
+    if (Test-Path -LiteralPath $Path) {
+        Write-Info "Skanowanie: $Path"
+        $items = Get-ChildItem -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+        
+        if ($items) {
+            Write-Info "Wykryto $($items.Count) elementów. Usuwanie..."
+            $err = $null
+            $items | Remove-Item -Force -Recurse -ErrorAction SilentlyContinue -ErrorVariable err
+            
+            if ($err) {
+                Write-Warn "Część plików ($($err.Count)) nie mogła zostać usunięta."
+            } else {
+                Write-Success "Wyczyszczono zawartość $Path."
+            }
+        } else {
+            Write-Info "Folder jest już pusty."
+        }
+    }
+}
+
+# --- INICJALIZACJA ---
+$stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+$timeStamp = (Get-Date).ToString('yyyy-MM-dd_HH-mm-ss')
+$desktopPath = [Environment]::GetFolderPath('Desktop')
+$logPath = Join-Path $desktopPath "Konserwacja_$timeStamp.log"
+
+try {
+    Start-Transcript -Path $logPath -Force -ErrorAction Stop
+} catch {
+    Write-Warn "Nie można uruchomić transkrypcji logów."
+}
+
+# Rejestracja czyszczenia przy wyjściu (Ctrl+C)
+$null = Register-EngineEvent PowerShell.Exiting -Action { Stop-Transcript -ErrorAction SilentlyContinue }
+
+# --- START ---
+Write-Information "=== Zaawansowana konserwacja systemu Windows 11 ==="
+Write-Info "Wersja skryptu: $ScriptVersion"
+Write-Info "Data: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+Write-Info "PowerShell: $($PSVersionTable.PSVersion) ($($PSVersionTable.PSEdition))"
+
+# Podsumowanie operacji
+Write-Information "`n--- Planowane operacje ---"
+Write-Info "Czyszczenie Temp:          $(if ($SkipTemp) { '❌ POMINIĘTE' } else { '✅ WYKONANE' })"
+Write-Info "Cache Windows Update:      $(if ($SkipUpdateCache) { '❌ POMINIĘTE' } else { '✅ WYKONANE' })"
+Write-Info "Reset Sklepu MS:           $(if ($SkipStoreReset) { '❌ POMINIĘTE' } else { '✅ WYKONANE' })"
+Write-Info "DISM (Cleanup + Repair):   $(if ($SkipDISM) { '❌ POMINIĘTO' } else { '✅ WYKONANE' })"
+Write-Info "SFC /scannow:              $(if ($SkipSFC) { '❌ POMINIĘTE' } else { '✅ WYKONANE' })"
+Write-Information "-------------------------------------"
+
+try {
+    # 1. Temp
+    if (-not $SkipTemp) {
+        Write-Step "[1/6] Czyszczenie plików tymczasowych..."
+        Clear-Folder -Path $env:TEMP
+        Clear-Folder -Path "C:\Windows\Temp"
+    } else {
+        Write-Step "[1/6] [POMINIĘTO] Czyszczenie plików tymczasowych"
+    }
+
+    # 2. Windows Update Cache
+    if (-not $SkipUpdateCache) {
+        Write-Step "[2/6] Czyszczenie cache Windows Update..."
+        $updateServices = @('wuauserv', 'bits', 'cryptsvc')
+
+        try {
+            Write-Info "Zatrzymywanie usług..."
+            Stop-Service -Name $updateServices -Force -ErrorAction Stop
+            Start-Sleep -Seconds 2
+
+            $sdPath = "C:\Windows\SoftwareDistribution"
+            if (Test-Path $sdPath) {
+                $sdItems = Get-ChildItem -Path $sdPath -Exclude "DataStore", "ReportingEvents" -Force -ErrorAction SilentlyContinue
+                if ($sdItems) {
+                    Write-Info "Usuwanie $($sdItems.Count) obiektów..."
+                    $errWU = $null
+                    $sdItems | Remove-Item -Force -Recurse -ErrorAction SilentlyContinue -ErrorVariable errWU
+                    if ($errWU) { Write-Warn "Niektóre pliki nie zostały usunięte." }
+                    else { Write-Success "Cache SoftwareDistribution wyczyszczony." }
+                }
+            }
+        }
+        catch {
+            Write-Err "Błąd czyszczenia cache aktualizacji: $_"
+            $script:ExitCode = 1
+        }
+        finally {
+            Write-Info "Wznawianie usług..."
+            Start-Service -Name $updateServices -ErrorAction SilentlyContinue
+            foreach ($svc in $updateServices) {
+                try { (Get-Service $svc -ErrorAction SilentlyContinue).WaitForStatus('Running', '00:00:15') } catch {}
+            }
+        }
+    } else {
+        Write-Step "[2/6] [POMINIĘTO] Czyszczenie cache Windows Update"
+    }
+
+    # 3. DNS + Kosz + Store
+    Write-Step "[3/6] Czyszczenie DNS, Kosza i Sklepu MS..."
+    Clear-DnsClientCache
+    Write-Success "Cache DNS wyczyszczony."
+
+    try {
+        Clear-RecycleBin -Force -ErrorAction Stop
+        Write-Success "Kosz opróżniony."
+    } catch {
+        if ($_.Exception.Message -like "*empty*") {
+            Write-Info "Kosz jest już pusty."
+        } else {
+            Write-Warn "Nie udało się opróżnić Kosza."
+        }
+    }
+
+    if (-not $SkipStoreReset) {
+        Write-Info "Resetowanie cache Sklepu Microsoft..."
+        $storeProc = Start-Process "wsreset.exe" -Wait -NoNewWindow -PassThru
+        if ($storeProc.ExitCode -eq 0) {
+            Write-Success "Cache Sklepu zresetowany."
+        } else {
+            Write-Warn "wsreset.exe zwrócił kod $($storeProc.ExitCode)."
+        }
+    } else {
+        Write-Step "[3/6] [POMINIĘTO] Reset Sklepu MS"
+    }
+
+    # 4+5. DISM
+    if (-not $SkipDISM) {
+        Write-Step "[4/6] Czyszczenie magazynu WinSxS..."
+        $dismCleanExit = Invoke-Dism "/online /cleanup-image /startcomponentcleanup"
+        switch ($dismCleanExit) {
+            0    { Write-Success "StartComponentCleanup zakończone sukcesem." }
+            3010 { Write-Warn "StartComponentCleanup sukces - wymagany restart." }
+            default { Write-Err "StartComponentCleanup - błąd (kod: $dismCleanExit)"; $script:ExitCode = 1 }
+        }
+
+        Write-Step "Analiza magazynu komponentów..."
+        Invoke-DismOutput "/online /cleanup-image /analyzecomponentstore"
+
+        Write-Step "[5/6] Weryfikacja i naprawa obrazu systemu..."
+        Invoke-DismOutput "/online /cleanup-image /checkhealth"
+        $scanExit = Invoke-Dism "/online /cleanup-image /scanhealth"
+
+        if ($scanExit -ne 0) {
+            Write-Info "Wykryto problemy w obrazie - uruchamianie naprawy..."
+            $restoreExit = Invoke-Dism "/online /cleanup-image /restorehealth"
+            switch ($restoreExit) {
+                0    { Write-Success "Naprawa obrazu zakończona sukcesem." }
+                3010 { Write-Warn "Naprawa sukces - wymagany restart." }
+                default { Write-Err "Błąd naprawy obrazu (kod: $restoreExit)"; $script:ExitCode = 1 }
+            }
+        } else {
+            Write-Success "Obraz systemu jest zdrowy."
+        }
+    } else {
+        Write-Step "[4/6] [POMINIĘTO] Operacje DISM"
+        Write-Step "[5/6] [POMINIĘTO] Operacje DISM"
+    }
+
+    # 6. SFC
+    if (-not $SkipSFC) {
+        Write-Step "[6/6] Skanowanie plików systemowych (SFC)..."
+        $sfcProc = Start-Process -FilePath "sfc.exe" -ArgumentList "/scannow" -Wait -NoNewWindow -PassThru
+
+        switch ($sfcProc.ExitCode) {
+            0 { Write-Success "SFC: Brak naruszeń integralności." }
+            1 { Write-Success "SFC: Wykryto i naprawiono uszkodzenia." }
+            2 { Write-Err "SFC: Niektóre uszkodzenia nie mogły zostać naprawione."; $script:ExitCode = 1 }
+            default { Write-Warn "SFC zakończone kodem $($sfcProc.ExitCode)." }
+        }
+    } else {
+        Write-Step "[6/6] [POMINIĘTO] Skanowanie SFC"
+    }
+
+    Write-Information "`n=== Konserwacja zakończona! ==="
+    if (-not $SkipSFC -or -not $SkipDISM) {
+        Write-Information "`n[!] Jeśli DISM lub SFC wykonały naprawę — zalecany restart komputera."
+    }
+}
+finally {
+    $stopwatch.Stop()
+    Write-Info "Czas wykonania: $($stopwatch.Elapsed.ToString('hh\:mm\:ss'))"
+    try { Stop-Transcript -ErrorAction SilentlyContinue } catch {}
+}
+
+exit $script:ExitCode<#
+.SYNOPSIS
+    Zaawansowany skrypt konserwacji i czyszczenia systemu Windows 11.
+.DESCRIPTION
     Automatyzuje proces czyszczenia plików tymczasowych, cache Windows Update, DNS, MS Store, Kosza 
     oraz weryfikuje spójność systemu narzędziami DISM i SFC. Wykorzystuje natywne strumienie PowerShell,
     sprawdza kody wyjścia procesów, bezpiecznie obsługuje ścieżki (w tym OneDrive) i pozwala na
