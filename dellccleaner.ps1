@@ -101,26 +101,28 @@ $WingetPackages = @(
     'McAfee.TotalProtection'
 )
 
-# Sprawdź czy winget jest dostępny
 $winget = Get-Command winget -ErrorAction SilentlyContinue
 if ($winget) {
     foreach ($pkg in $WingetPackages) {
         Write-Host "  Sprawdzam: $pkg" -NoNewline
-        $list = winget list --id $pkg --exact 2>$null
+        # Dodana flaga --accept-source-agreements aby uniknac zawieszenia na ukrytym pytaniu [Y/N]
+        $list = winget list --id $pkg --exact --accept-source-agreements 2>$null
+        
         if ($LASTEXITCODE -eq 0 -and $list -match $pkg) {
-            Write-Host " → odinstalowuję..." -ForegroundColor White
-            winget uninstall --id $pkg --exact --silent --force --accept-source-agreements 2>&1 | Out-Null
+            Write-Host " -> odinstalowuje..." -ForegroundColor White
+            # Dodana flaga --accept-package-agreements (niektore pakiety tego wymagaja przy deinstalacji)
+            winget uninstall --id $pkg --exact --silent --force --accept-source-agreements --accept-package-agreements 2>&1 | Out-Null
             if ($LASTEXITCODE -eq 0) {
-                Write-Host "    ✓ Sukces" -ForegroundColor Green
+                Write-Host "    v Sukces" -ForegroundColor Green
             } else {
-                Write-Host "    ✗ Błąd (kod $LASTEXITCODE)" -ForegroundColor Red
+                Write-Host "    x Blad (kod $LASTEXITCODE)" -ForegroundColor Red
             }
         } else {
-            Write-Host " → nie znaleziono" -ForegroundColor DarkGray
+            Write-Host " -> nie znaleziono" -ForegroundColor DarkGray
         }
     }
 } else {
-    Write-Host "  winget niedostępny – pomijam tę metodę" -ForegroundColor DarkYellow
+    Write-Host "  winget niedostepny - pomijam te metode" -ForegroundColor DarkYellow
 }
 #endregion
 
