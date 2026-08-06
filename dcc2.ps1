@@ -93,16 +93,45 @@ foreach ($pattern in $ProcessPatterns) {
 
 #region --- 3. Usuwanie zaplanowanych zadan ---
 Write-Host "`n[3/6] Usuwanie zaplanowanych zadan Dell/McAfee..." -ForegroundColor Yellow
-$TaskPatterns = @('*Dell*', '*SupportAssist*', '*Optimizer*', '*McAfee*', '*WebAdvisor*', '*Pair*')
-foreach ($pattern in $TaskPatterns) {
-    Get-ScheduledTask -TaskName $pattern -ErrorAction SilentlyContinue | ForEach-Object {
-        try {
-            Unregister-ScheduledTask -TaskName $_.TaskName -Confirm:$false -ErrorAction Stop
-            Write-Host "  v Usunieto zadanie: $($_.TaskName)" -ForegroundColor Green
-        } catch {
-            Write-Host "  x Nie udalo sie usunac zadania: $($_.TaskName)" -ForegroundColor DarkYellow
+
+$TaskPatterns = @('*Dell*', '*SupportAssist*', '*Optimizer*', '*McAfee*', '*WebAdvisor*', '*Pair*', '*DDV*')
+
+try {
+    # Bezpieczniejszy sposob - pobieramy wszystkie zadania i filtrujemy lokalnie
+    $tasks = Get-ScheduledTask -ErrorAction SilentlyContinue | Where-Object {
+        $name = $_.TaskName
+        $path = $_.TaskPath
+        $isMatch = $false
+        
+        foreach ($pattern in $TaskPatterns) {
+            if ($name -like $pattern -or $path -like $pattern) {
+                $isMatch = $true
+                break # Przerywamy petle sprawdzania wzorcow, jesli znalezlismy dopasowanie
+            }
         }
+        $isMatch # Gwarantuje prawidlowe dzialanie Where-Object
     }
+
+    if ($tasks) {
+        foreach ($task in $tasks) {
+            try {
+                # Najpierw zatrzymaj zadanie jesli dziala
+                if ($task.State -eq 'Running') {
+                    Stop-ScheduledTask -TaskName $task.TaskName -TaskPath $task.TaskPath -ErrorAction SilentlyContinue
+                }
+                
+                Unregister-ScheduledTask -TaskName $task.TaskName -TaskPath $task.TaskPath -Confirm:$false -ErrorAction Stop
+                Write-Host "  v Usunieto zadanie: $($task.TaskPath)$($task.TaskName)" -ForegroundColor Green
+            } catch {
+                Write-Host "  x Nie udalo sie usunac: $($task.TaskName) - $($_.Exception.Message)" -ForegroundColor DarkYellow
+            }
+        }
+    } else {
+        Write-Host "  Brak pasujacych zadan do usuniecia." -ForegroundColor DarkGray
+    }
+} catch {
+    Write-Host "  x Blad podczas pobierania listy zadan: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "  Pomijam ten krok i kontynuuje..." -ForegroundColor Yellow
 }
 #endregion
 
