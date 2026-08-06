@@ -3,25 +3,25 @@
     Usuwa preinstalowane oprogramowanie (bloatware) firmy Dell oraz McAfee.
 .DESCRIPTION
     - Wymusza uprawnienia administratora
-    - Zatrzymuje usługi i procesy Dell/McAfee
+    - Zatrzymuje uslugi i procesy Dell/McAfee
     - Deinstaluje przez winget (najskuteczniejsze), PackageManagement i AppX
-    - Czyści typowe foldery i klucze rejestru
+    - Czysci typowe foldery i klucze rejestru
     - Loguje wszystko na pulpit
 .NOTES
     Wymaga PowerShell 5.1+ oraz Windows 10/11.
-    Po zakończeniu zalecany jest restart.
+    Po zakonczeniu zalecany jest restart.
 #>
 
 [CmdletBinding()]
 param (
     [switch]$LogToDesktop = $true,
-    [switch]$RemoveLeftovers = $true   # czyści foldery i rejestr
+    [switch]$RemoveLeftovers = $true
 )
 
 #region --- Uprawnienia administratora ---
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
         [Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Write-Warning "Skrypt wymaga uprawnień administratora. Uruchom PowerShell jako Administrator."
+    Write-Warning "Skrypt wymaga uprawnien administratora. Uruchom PowerShell jako Administrator."
     break
 }
 #endregion
@@ -38,7 +38,7 @@ if ($LogToDesktop) {
 Write-Host "`n=== Rozpoczynam czyszczenie systemu z oprogramowania Dell / McAfee ===" -ForegroundColor Cyan
 Write-Host "Data: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')" -ForegroundColor DarkGray
 
-#region --- 1. Zatrzymanie usług i procesów ---
+#region --- 1. Zatrzymanie uslug i procesow ---
 $ServicesToStop = @(
     'SupportAssistAgent',
     'DDVDataCollector',
@@ -56,28 +56,28 @@ $ServicesToStop = @(
     'mfevtp'
 )
 
-Write-Host "`n[1/5] Zatrzymywanie usług..." -ForegroundColor Yellow
+Write-Host "`n[1/5] Zatrzymywanie uslug..." -ForegroundColor Yellow
 foreach ($svc in $ServicesToStop) {
     $service = Get-Service -Name $svc -ErrorAction SilentlyContinue
     if ($service -and $service.Status -ne 'Stopped') {
         try {
             Stop-Service -Name $svc -Force -ErrorAction Stop
-            Write-Host "  ✓ Zatrzymano: $svc" -ForegroundColor Green
+            Write-Host "  v Zatrzymano: $svc" -ForegroundColor Green
         } catch {
-            Write-Host "  ✗ Nie udało się zatrzymać: $svc ($($_.Exception.Message))" -ForegroundColor DarkYellow
+            Write-Host "  x Nie udalo sie zatrzymac: $svc ($($_.Exception.Message))" -ForegroundColor DarkYellow
         }
     }
 }
 
-Write-Host "`n[2/5] Zatrzymywanie procesów..." -ForegroundColor Yellow
+Write-Host "`n[2/5] Zatrzymywanie procesow..." -ForegroundColor Yellow
 $ProcessPatterns = @('SupportAssist*', 'Dell*', 'McAfee*', 'mfemms*', 'mfevt*', 'ModuleCoreService*', 'PEFService*')
 foreach ($pattern in $ProcessPatterns) {
     Get-Process -Name $pattern -ErrorAction SilentlyContinue | ForEach-Object {
         try {
             Stop-Process -Id $_.Id -Force -ErrorAction Stop
-            Write-Host "  ✓ Zabito: $($_.ProcessName) (PID $($_.Id))" -ForegroundColor Green
+            Write-Host "  v Zabito: $($_.ProcessName) (PID $($_.Id))" -ForegroundColor Green
         } catch {
-            Write-Host "  ✗ Nie udało się zabić: $($_.ProcessName)" -ForegroundColor DarkYellow
+            Write-Host "  x Nie udalo sie zabic: $($_.ProcessName)" -ForegroundColor DarkYellow
         }
     }
 }
@@ -142,21 +142,19 @@ $NamePatterns = @(
     '*MyDell*'
 )
 
-# Klasyczne pakiety (MSI / EXE zarejestrowane w PackageManagement)
 foreach ($pattern in $NamePatterns) {
     $packages = Get-Package -Name $pattern -ErrorAction SilentlyContinue
     foreach ($pkg in $packages) {
         Write-Host "  Znaleziono (Package): $($pkg.Name) v$($pkg.Version)" -ForegroundColor White
         try {
             Uninstall-Package -InputObject $pkg -Force -ErrorAction Stop | Out-Null
-            Write-Host "    ✓ Odinstalowano" -ForegroundColor Green
+            Write-Host "    v Odinstalowano" -ForegroundColor Green
         } catch {
-            Write-Host "    ✗ Błąd: $($_.Exception.Message)" -ForegroundColor Red
+            Write-Host "    x Blad: $($_.Exception.Message)" -ForegroundColor Red
         }
     }
 }
 
-# Aplikacje AppX / UWP (często SupportAssist, Optimizer)
 $AppXPatterns = @(
     '*Dell*',
     '*McAfee*',
@@ -169,29 +167,28 @@ foreach ($pattern in $AppXPatterns) {
         Write-Host "  Znaleziono (AppX): $($app.Name)" -ForegroundColor White
         try {
             Remove-AppxPackage -Package $app.PackageFullName -AllUsers -ErrorAction Stop
-            Write-Host "    ✓ Usunięto AppX" -ForegroundColor Green
+            Write-Host "    v Usunieto AppX" -ForegroundColor Green
         } catch {
-            # Próba bez -AllUsers
             try {
                 Remove-AppxPackage -Package $app.PackageFullName -ErrorAction Stop
-                Write-Host "    ✓ Usunięto AppX (bieżący użytkownik)" -ForegroundColor Green
+                Write-Host "    v Usunieto AppX (biezacy uzytkownik)" -ForegroundColor Green
             } catch {
-                Write-Host "    ✗ Błąd AppX: $($_.Exception.Message)" -ForegroundColor Red
+                Write-Host "    x Blad AppX: $($_.Exception.Message)" -ForegroundColor Red
             }
         }
     }
 }
 #endregion
 
-#region --- 4. Czyszczenie pozostałości (foldery + rejestr) ---
+#region --- 4. Czyszczenie pozostalosci (foldery + rejestr) ---
 if ($RemoveLeftovers) {
-    Write-Host "`n[5/5] Czyszczenie pozostałości..." -ForegroundColor Yellow
+    Write-Host "`n[5/5] Czyszczenie pozostalosci..." -ForegroundColor Yellow
 
     $FoldersToRemove = @(
         "$env:ProgramFiles\Dell",
-        "$env:ProgramFiles(x86)\Dell",
+        "${env:ProgramFiles(x86)}\Dell",
         "$env:ProgramFiles\McAfee",
-        "$env:ProgramFiles(x86)\McAfee",
+        "${env:ProgramFiles(x86)}\McAfee",
         "$env:ProgramData\Dell",
         "$env:ProgramData\McAfee",
         "$env:LOCALAPPDATA\Dell",
@@ -204,14 +201,13 @@ if ($RemoveLeftovers) {
         if (Test-Path $folder) {
             try {
                 Remove-Item -Path $folder -Recurse -Force -ErrorAction Stop
-                Write-Host "  ✓ Usunięto folder: $folder" -ForegroundColor Green
+                Write-Host "  v Usunieto folder: $folder" -ForegroundColor Green
             } catch {
-                Write-Host "  ✗ Nie udało się usunąć: $folder ($($_.Exception.Message))" -ForegroundColor DarkYellow
+                Write-Host "  x Nie udalo sie usunac: $folder ($($_.Exception.Message))" -ForegroundColor DarkYellow
             }
         }
     }
 
-    # Klucze rejestru (najczęstsze)
     $RegKeys = @(
         'HKLM:\SOFTWARE\Dell',
         'HKLM:\SOFTWARE\WOW6432Node\Dell',
@@ -225,17 +221,17 @@ if ($RemoveLeftovers) {
         if (Test-Path $key) {
             try {
                 Remove-Item -Path $key -Recurse -Force -ErrorAction Stop
-                Write-Host "  ✓ Usunięto klucz: $key" -ForegroundColor Green
+                Write-Host "  v Usunieto klucz: $key" -ForegroundColor Green
             } catch {
-                Write-Host "  ✗ Nie udało się usunąć klucza: $key" -ForegroundColor DarkYellow
+                Write-Host "  x Nie udalo sie usunac klucza: $key" -ForegroundColor DarkYellow
             }
         }
     }
 }
 #endregion
 
-#region --- Zakończenie ---
-Write-Host "`n=== Czyszczenie zakończone ===" -ForegroundColor Cyan
+#region --- Zakonczenie ---
+Write-Host "`n=== Czyszczenie zakonczone ===" -ForegroundColor Cyan
 
 if ($LogToDesktop -and $LogPath) {
     Stop-Transcript | Out-Null
@@ -243,5 +239,5 @@ if ($LogToDesktop -and $LogPath) {
 }
 
 Write-Host "`nZalecane jest PONOWNE URUCHOMIENIE komputera!" -ForegroundColor Yellow
-Write-Host "Po restarcie możesz jeszcze raz uruchomić skrypt, aby usunąć ewentualne pozostałości." -ForegroundColor DarkGray
+Write-Host "Po restarcie mozesz jeszcze raz uruchomic skrypt, aby usunac ewentualne pozostalosci." -ForegroundColor DarkGray
 #endregion
